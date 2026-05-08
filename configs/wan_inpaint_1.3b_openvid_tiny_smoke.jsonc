@@ -1,0 +1,74 @@
+{
+  "task": "inpaint",
+  "pretrained_model_path": "/home/hulc/video_gen/Wan2.1-Fun-1.3B-InP",
+
+  "train_metadata": "/home/hulc/video_gen/light-videox-trainer/examples/openvid_part1_512.valid.json",
+  "train_data_root": "",
+
+  "output_dir": "outputs/wan-openvid-tiny-smoke-inpaint-1.3b",
+  "tracker_project_name": "light-videox-trainer-openvid-tiny-smoke-inpaint",
+
+  "video_sample_size": [128, 128],
+  "video_sample_n_frames": 5,
+  "video_sample_stride": 8,
+  "random_crop": true,
+  "text_drop_ratio": 0.1,
+
+  "seed": 42,
+  "train_batch_size": 1,
+  "gradient_accumulation_steps": 1,
+  "dataloader_num_workers": 0,
+  "max_train_steps": 1,
+  "checkpointing_steps": 0,
+  "learning_rate": 0.00002,
+  "adam_weight_decay": 0.03,
+  "adam_epsilon": 1e-10,
+  "max_grad_norm": 0.05,
+  "mixed_precision": "bf16",
+  "gradient_checkpointing": true,
+  "vae_mini_batch": 1,
+  "resume_from_checkpoint": null,
+
+  "trainable_modules": ["*"],
+
+  "model": {
+    "transformer_additional_kwargs": {
+      "transformer_subpath": "./",
+      "dict_mapping": {
+        "in_dim": "in_channels",
+        "dim": "hidden_size"
+      }
+    },
+    "vae_kwargs": {
+      "vae_subpath": "Wan2.1_VAE.pth",
+      "temporal_compression_ratio": 4,
+      "spatial_compression_ratio": 8
+    },
+    "text_encoder_kwargs": {
+      "text_encoder_subpath": "models_t5_umt5-xxl-enc-bf16.pth",
+      "tokenizer_subpath": "google/umt5-xxl",
+      "text_length": 512,
+      "vocab": 256384,
+      "dim": 4096,
+      "dim_attn": 4096,
+      "dim_ffn": 10240,
+      "num_heads": 64,
+      "num_layers": 24,
+      "num_buckets": 32,
+      "shared_pos": false,
+      "dropout": 0.0
+    },
+    "image_encoder_kwargs": {
+      "image_encoder_subpath": "models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth"
+    },
+    "scheduler_kwargs": {
+      "num_train_timesteps": 1000,
+      "shift": 5.0,
+      "use_dynamic_shifting": false,
+      "base_shift": 0.5,
+      "max_shift": 1.15,
+      "base_image_seq_len": 256,
+      "max_image_seq_len": 4096
+    }
+  }
+}

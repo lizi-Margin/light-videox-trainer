@@ -1,0 +1,7 @@
+from .pipeline_cogvideox_fun import CogVideoXFunPipeline
+from .pipeline_cogvideox_fun_inpaint import CogVideoXFunInpaintPipeline
+from .pipeline_wan_fun import WanFunPipeline
+from .pipeline_wan_fun_inpaint import WanFunInpaintPipeline
+
+WanPipeline = WanFunPipeline
+WanI2VPipeline = WanFunInpaintPipeline

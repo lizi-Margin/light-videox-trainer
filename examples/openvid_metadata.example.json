@@ -1,0 +1,7 @@
+[
+  {
+    "file_path": "/abs/path/to/video.mp4",
+    "text": "A short caption for the video.",
+    "type": "video"
+  }
+]

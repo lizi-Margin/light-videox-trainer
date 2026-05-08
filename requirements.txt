@@ -1,0 +1,16 @@
+accelerate>=0.25.0
+commentjson
+decord
+diffusers>=0.30.1
+einops
+func_timeout
+loguru
+mediapy
+opencv-python
+Pillow
+safetensors
+SentencePiece
+tensorboard
+tqdm
+torchvision
+transformers>=4.46.2
