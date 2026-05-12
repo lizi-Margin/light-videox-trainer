@@ -2,7 +2,7 @@ import numpy as np
 from uhtk.UTIL.colorful import *
 
 
-def get_a_logger(logdir, color='k'):
+def get_a_logger(logdir, color='k', figsize=None, dpi=120, font_size=9):
     from uhtk.VISUALIZE.mcom import mcom
     mcv = mcom(
         path=f'{logdir}/mcom/',
@@ -10,7 +10,10 @@ def get_a_logger(logdir, color='k'):
         digit=16,
         rapid_flush=True,
         draw_mode='Img',
-        resume_mod=False
+        resume_mod=False,
+        figsize=figsize,
+        dpi=dpi,
+        font_size=font_size,
     )
     mcv.rec_init(color=color)
     return mcv

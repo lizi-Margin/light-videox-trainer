@@ -72,6 +72,7 @@ class WanTrainer:
 
         max_train_steps = int(self.cfg["max_train_steps"])
         checkpointing_steps = int(self.cfg.get("checkpointing_steps", 1000))
+        step_sleep_seconds = float(self.cfg.get("step_sleep_seconds", 0.0))
         text_length = int(self.cfg["model"]["text_encoder_kwargs"].get("text_length", 512))
         step_start_time = time.perf_counter()
 
@@ -86,13 +87,14 @@ class WanTrainer:
                     if self.accelerator.device.type == "cuda":
                         torch.cuda.synchronize(self.accelerator.device)
                     step_time_sec = time.perf_counter() - step_start_time
-                    step_start_time = time.perf_counter()
                     global_step += 1
                     progress.update(1)
                     self._log_metrics(loss, global_step, metrics, step_time_sec)
                     progress.set_postfix(loss=f"{loss.detach().float().item():.4f}")
                     self._save_checkpoint_if_due(global_step, checkpointing_steps)
                     self._sample_video_if_due(global_step)
+                    self._sleep_between_steps(step_sleep_seconds)
+                    step_start_time = time.perf_counter()
 
         self._finish()
 
@@ -269,6 +271,11 @@ class WanTrainer:
         assert self.bundle is not None
         latest_path = self.video_sampler.sample_step(self.bundle, self.accelerator.device, global_step)
         self.accelerator.print(f"Saved training sample: {latest_path}")
+
+    def _sleep_between_steps(self, seconds: float) -> None:
+        if seconds <= 0.0:
+            return
+        time.sleep(seconds)
 
     def _log_metrics(
         self,

@@ -44,7 +44,10 @@ Relevant config keys:
 
 ```json
 "visualizer_enabled": true,
-"visualizer_smooth": true
+"visualizer_smooth": true,
+"visualizer_dpi": 120,
+"visualizer_font_size": 9,
+"visualizer_figsize": null
 ```
 
 Run a lightweight data/config sanity check before training:

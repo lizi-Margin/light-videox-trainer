@@ -10,6 +10,8 @@ from diffusers.configuration_utils import ConfigMixin
 from diffusers.loaders.single_file_model import FromOriginalModelMixin
 from diffusers.models.modeling_utils import ModelMixin
 
+from .loading_utils import load_model_dict_into_meta
+
 
 def fp16_clamp(x):
     if x.dtype == torch.float16 and torch.isinf(x).any():
@@ -316,8 +318,6 @@ class WanT5EncoderModel(ModelMixin, ConfigMixin, FromOriginalModelMixin):
             try:
                 import re
 
-                from diffusers.models.modeling_utils import \
-                    load_model_dict_into_meta
                 from diffusers.utils import is_accelerate_available
                 if is_accelerate_available():
                     import accelerate

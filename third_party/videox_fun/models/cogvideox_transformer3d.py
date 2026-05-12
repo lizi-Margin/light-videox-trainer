@@ -40,6 +40,7 @@ from ..dist import (get_sequence_parallel_rank,
                     get_sp_group,
                     xFuserLongContextAttention)
 from ..dist.cogvideox_xfuser import CogVideoXMultiGPUsAttnProcessor2_0
+from .loading_utils import load_model_dict_into_meta
 
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
@@ -715,8 +716,6 @@ class CogVideoXTransformer3DModel(ModelMixin, ConfigMixin):
             try:
                 import re
 
-                from diffusers.models.modeling_utils import \
-                    load_model_dict_into_meta
                 from diffusers.utils import is_accelerate_available
                 if is_accelerate_available():
                     import accelerate

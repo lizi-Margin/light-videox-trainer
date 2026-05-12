@@ -21,7 +21,13 @@ class UHTKMetricsLogger:
         try:
             from uhtk.mcv_log_manager import LogManager, get_a_logger
 
-            self._mcv = get_a_logger(logdir, color=str(cfg.get("visualizer_color", "k")))
+            self._mcv = get_a_logger(
+                logdir,
+                color=str(cfg.get("visualizer_color", "k")),
+                figsize=cfg.get("visualizer_figsize"),
+                dpi=int(cfg.get("visualizer_dpi", 120)),
+                font_size=int(cfg.get("visualizer_font_size", 9)),
+            )
             self._manager = LogManager(
                 self._mcv,
                 who=cfg.get("tracker_project_name", "light-videox-trainer"),
