@@ -14,6 +14,7 @@ from models.wan_forward import encode_prompts, encode_video_latents, transformer
 from models.wan_loader import WanModelBundle, WanModelLoader
 from trainer.checkpointing import resolve_resume_checkpoint
 from trainer.metrics_logger import UHTKMetricsLogger
+from trainer.sampling import TrainingVideoSampler
 from trainer.schedulers import flow_matching_loss, get_sigmas, sample_flow_timesteps
 from trainer.tasks import WanInpaintTask, WanT2VTask, WanTrainingTask, build_training_task
 from utils.device import dtype_from_mixed_precision, seed_everything
@@ -54,6 +55,7 @@ class WanTrainer:
         self.optimizer: torch.optim.Optimizer | None = None
         self.trainable_params: list[torch.nn.Parameter] = []
         self.metrics_logger: UHTKMetricsLogger | None = None
+        self.video_sampler: TrainingVideoSampler | None = None
 
     def train(self) -> None:
         self._setup()
@@ -90,6 +92,7 @@ class WanTrainer:
                     self._log_metrics(loss, global_step, metrics, step_time_sec)
                     progress.set_postfix(loss=f"{loss.detach().float().item():.4f}")
                     self._save_checkpoint_if_due(global_step, checkpointing_steps)
+                    self._sample_video_if_due(global_step)
 
         self._finish()
 
@@ -115,6 +118,14 @@ class WanTrainer:
         ).select(self.bundle.transformer)
         self.optimizer = self._build_optimizer(self.trainable_params)
         self.train_dataloader = self.data_module.train_dataloader(self.accelerator)
+        if self.accelerator.is_main_process:
+            self.video_sampler = TrainingVideoSampler(
+                self.cfg,
+                output_dir=self.output_dir,
+                dataset=self.data_module.train_dataset,
+                sample_size=self.data_module.config.sample_size,
+                weight_dtype=self.weight_dtype,
+            )
 
         self.bundle.transformer, self.optimizer, self.train_dataloader = self.accelerator.prepare(
             self.bundle.transformer,
@@ -249,6 +260,15 @@ class WanTrainer:
         self.accelerator.save_state(checkpoint_dir)
         if self.accelerator.is_main_process:
             self.bundle.unwrap_transformer().save_pretrained(os.path.join(checkpoint_dir, "transformer"))
+
+    def _sample_video_if_due(self, global_step: int) -> None:
+        if not self.accelerator.is_main_process or self.video_sampler is None:
+            return
+        if not self.video_sampler.should_sample(global_step):
+            return
+        assert self.bundle is not None
+        latest_path = self.video_sampler.sample_step(self.bundle, self.accelerator.device, global_step)
+        self.accelerator.print(f"Saved training sample: {latest_path}")
 
     def _log_metrics(
         self,
