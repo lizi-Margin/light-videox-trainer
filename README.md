@@ -2,19 +2,17 @@
 
 A lightweight training harness for Wan/VideoX-Fun style video diffusion fine-tuning.
 
-The first supported path is full-parameter text-to-video training with `Wan2.1-Fun-1.3B-InP`.
-Inpainting support is intentionally left out of the initial training path, but the vendored
-`third_party/videox_fun` code is kept so the inpaint branch can be added later without changing
-the model loading foundation.
+The supported tasks are text-to-video smoke/full training and random-mask inpainting training
+with `Wan2.1-Fun-1.3B-InP`.
 
 ## Layout
 
 - `train_wan_t2v.py`: root training entrypoint.
 - `sanity_check.py`: validates config, metadata, batch decode, and optional model loading.
 - `configs/*.jsonc`: commented JSON configuration files.
-- `trainer/`: training loop, scheduler helpers, checkpointing.
-- `data/`: video dataset and collate logic.
-- `models/`: Wan model loading and forward utilities.
+- `trainer/`: class-based Wan trainers, task condition builders, scheduler helpers, checkpointing.
+- `data/`: video dataset, collate logic, and `VideoDataModule`.
+- `models/`: Wan model loading bundle and forward utilities.
 - `utils/`: config, path, device, and video IO helpers.
 - `tools/`: metadata preparation and validation helpers.
 - `third_party/videox_fun/`: copied from `gen-omnimatte-public`.
@@ -34,6 +32,9 @@ pip install -r requirements.txt -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web
 micromamba activate video_gen
 python train_wan_t2v.py --config configs/wan_t2v_1.3b_debug.jsonc
 ```
+
+Use `"task": "inpaint"` in the config for the inpainting trainer. Without a task field, the
+factory uses the T2V trainer.
 
 Before training, create and validate metadata:
 
