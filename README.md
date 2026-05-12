@@ -33,6 +33,20 @@ micromamba activate video_gen
 python main.py train --config configs/inpaint_smoke.jsonc
 ```
 
+Training metrics are logged with the vendored UHTK visualizer by default. The
+default log directory is `<output_dir>/visualizer`, and the live/static outputs are
+written under that directory, including `rec.jpg`, `rec.json`, and `rec.csv`.
+Logged scalar metrics include `train_loss`, `learning_rate`, `grad_norm`,
+`step_time_sec`, `samples_per_sec`, `samples_seen`, `timestep_mean`,
+`sigma_mean`, and CUDA memory metrics when training on GPU.
+
+Relevant config keys:
+
+```json
+"visualizer_enabled": true,
+"visualizer_smooth": true
+```
+
 Run a lightweight data/config sanity check before training:
 
 ```bash

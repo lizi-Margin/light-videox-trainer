@@ -7,6 +7,8 @@
 
   "output_dir": "outputs/wan-openvid-smoke-inpaint-1.3b",
   "tracker_project_name": "light-videox-trainer-inpaint-smoke",
+  "visualizer_enabled": true,
+  "visualizer_smooth": true,
 
   "video_sample_size": [256, 256],
   "video_sample_n_frames": 17,

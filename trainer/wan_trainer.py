@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +13,7 @@ from data.datamodule import VideoDataModule
 from models.wan_forward import encode_prompts, encode_video_latents, transformer_seq_len
 from models.wan_loader import WanModelBundle, WanModelLoader
 from trainer.checkpointing import resolve_resume_checkpoint
+from trainer.metrics_logger import UHTKMetricsLogger
 from trainer.schedulers import flow_matching_loss, get_sigmas, sample_flow_timesteps
 from trainer.tasks import WanInpaintTask, WanT2VTask, WanTrainingTask, build_training_task
 from utils.device import dtype_from_mixed_precision, seed_everything
@@ -36,22 +37,6 @@ class TrainableParameterSelector:
         return params
 
 
-class TensorboardTrackerConfig:
-    allowed_types = (int, float, str, bool, torch.Tensor)
-
-    @classmethod
-    def from_config(cls, cfg: dict[str, Any]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for key, value in cfg.items():
-            if value is None:
-                result[key] = "null"
-            elif isinstance(value, cls.allowed_types):
-                result[key] = value
-            else:
-                result[key] = json.dumps(value, ensure_ascii=False, sort_keys=True)
-        return result
-
-
 class WanTrainer:
     def __init__(
         self,
@@ -68,6 +53,7 @@ class WanTrainer:
         self.bundle: WanModelBundle | None = None
         self.optimizer: torch.optim.Optimizer | None = None
         self.trainable_params: list[torch.nn.Parameter] = []
+        self.metrics_logger: UHTKMetricsLogger | None = None
 
     def train(self) -> None:
         self._setup()
@@ -85,18 +71,23 @@ class WanTrainer:
         max_train_steps = int(self.cfg["max_train_steps"])
         checkpointing_steps = int(self.cfg.get("checkpointing_steps", 1000))
         text_length = int(self.cfg["model"]["text_encoder_kwargs"].get("text_length", 512))
+        step_start_time = time.perf_counter()
 
         while global_step < max_train_steps:
             for batch in self.train_dataloader:
                 if global_step >= max_train_steps:
                     break
 
-                loss = self._train_step(batch, global_step=global_step, text_length=text_length)
+                loss, metrics = self._train_step(batch, global_step=global_step, text_length=text_length)
 
                 if self.accelerator.sync_gradients:
+                    if self.accelerator.device.type == "cuda":
+                        torch.cuda.synchronize(self.accelerator.device)
+                    step_time_sec = time.perf_counter() - step_start_time
+                    step_start_time = time.perf_counter()
                     global_step += 1
                     progress.update(1)
-                    self.accelerator.log({"train_loss": loss.detach().float().item()}, step=global_step)
+                    self._log_metrics(loss, global_step, metrics, step_time_sec)
                     progress.set_postfix(loss=f"{loss.detach().float().item():.4f}")
                     self._save_checkpoint_if_due(global_step, checkpointing_steps)
 
@@ -106,7 +97,6 @@ class WanTrainer:
         return Accelerator(
             gradient_accumulation_steps=int(self.cfg.get("gradient_accumulation_steps", 1)),
             mixed_precision=self.cfg.get("mixed_precision", "no"),
-            log_with="tensorboard",
             project_dir=self.output_dir,
         )
 
@@ -135,9 +125,10 @@ class WanTrainer:
         self.bundle.set_scheduler_device(self.accelerator.device)
 
         if self.accelerator.is_main_process:
-            self.accelerator.init_trackers(
-                self.cfg.get("tracker_project_name", "light-videox-trainer"),
-                config=TensorboardTrackerConfig.from_config(self.cfg),
+            self.metrics_logger = UHTKMetricsLogger(
+                self.cfg,
+                self.output_dir,
+                enabled=bool(self.cfg.get("visualizer_enabled", True)),
             )
 
     def _build_optimizer(self, params: list[torch.nn.Parameter]) -> torch.optim.Optimizer:
@@ -167,7 +158,7 @@ class WanTrainer:
         except Exception:
             return 0
 
-    def _train_step(self, batch: dict[str, Any], global_step: int, text_length: int) -> torch.Tensor:
+    def _train_step(self, batch: dict[str, Any], global_step: int, text_length: int) -> tuple[torch.Tensor, dict[str, float]]:
         assert self.bundle is not None
         assert self.optimizer is not None
 
@@ -207,11 +198,21 @@ class WanTrainer:
                 loss = flow_matching_loss(noise_pred, target)
 
             self.accelerator.backward(loss)
+            grad_norm = None
             if self.accelerator.sync_gradients:
-                self.accelerator.clip_grad_norm_(self.trainable_params, float(self.cfg.get("max_grad_norm", 1.0)))
+                grad_norm = self.accelerator.clip_grad_norm_(
+                    self.trainable_params,
+                    float(self.cfg.get("max_grad_norm", 1.0)),
+                )
             self.optimizer.step()
             self.optimizer.zero_grad(set_to_none=True)
-            return loss
+            metrics = {
+                "timestep_mean": timesteps.detach().float().mean().item(),
+                "sigma_mean": sigmas.detach().float().mean().item(),
+            }
+            if grad_norm is not None:
+                metrics["grad_norm"] = grad_norm.detach().float().item() if hasattr(grad_norm, "detach") else float(grad_norm)
+            return loss, metrics
 
     def _encode_inputs(
         self,
@@ -249,12 +250,49 @@ class WanTrainer:
         if self.accelerator.is_main_process:
             self.bundle.unwrap_transformer().save_pretrained(os.path.join(checkpoint_dir, "transformer"))
 
+    def _log_metrics(
+        self,
+        loss: torch.Tensor,
+        global_step: int,
+        step_metrics: dict[str, float],
+        step_time_sec: float,
+    ) -> None:
+        if not self.accelerator.is_main_process or self.metrics_logger is None:
+            return
+        assert self.optimizer is not None
+        effective_batch_size = (
+            int(self.cfg.get("train_batch_size", 1))
+            * int(self.cfg.get("gradient_accumulation_steps", 1))
+            * self.accelerator.num_processes
+        )
+        metrics = {
+            "train_loss": loss.detach().float().item(),
+            "learning_rate": self.optimizer.param_groups[0]["lr"],
+            "step_time_sec": step_time_sec,
+            "samples_per_sec": effective_batch_size / max(step_time_sec, 1e-12),
+            "samples_seen": global_step * effective_batch_size,
+            **step_metrics,
+        }
+        if self.accelerator.device.type == "cuda":
+            device = self.accelerator.device
+            metrics.update(
+                {
+                    "gpu_memory_allocated_gb": torch.cuda.memory_allocated(device) / 1024**3,
+                    "gpu_memory_reserved_gb": torch.cuda.memory_reserved(device) / 1024**3,
+                    "gpu_memory_peak_allocated_gb": torch.cuda.max_memory_allocated(device) / 1024**3,
+                }
+            )
+            torch.cuda.reset_peak_memory_stats(device)
+        self.metrics_logger.log(metrics, step=global_step)
+
     def _finish(self) -> None:
         assert self.bundle is not None
         self.accelerator.wait_for_everyone()
         if self.accelerator.is_main_process:
             final_dir = os.path.join(self.output_dir, "final", "transformer")
             self.bundle.unwrap_transformer().save_pretrained(final_dir)
+            if self.metrics_logger is not None:
+                self.metrics_logger.close()
             self.accelerator.end_training()
 
 
