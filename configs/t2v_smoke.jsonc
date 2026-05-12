@@ -1,29 +1,25 @@
 {
-  // Local Wan/VideoX-Fun checkpoint.
+  "task": "t2v",
   "pretrained_model_path": "/home/hulc/video_gen/Wan2.1-Fun-1.3B-InP",
 
-  // Dataset metadata. Use tools/prepare_openvid_metadata.py to create this.
-  "train_metadata": "/abs/path/openvid_metadata.json",
+  "train_metadata": "/home/hulc/video_gen/light-videox-trainer/examples/openvid_part1_512.valid.json",
   "train_data_root": "",
 
-  // Output.
-  "output_dir": "outputs/wan-openvid-t2v-1.3b",
-  "tracker_project_name": "light-videox-trainer",
+  "output_dir": "outputs/wan-openvid-smoke-t2v-1.3b",
+  "tracker_project_name": "light-videox-trainer-t2v-smoke",
 
-  // Video sampling. Fixed resolution is used in the first lightweight version.
   "video_sample_size": [256, 256],
-  "video_sample_n_frames": 81,
-  "video_sample_stride": 2,
+  "video_sample_n_frames": 17,
+  "video_sample_stride": 4,
   "random_crop": true,
   "text_drop_ratio": 0.1,
 
-  // Training.
   "seed": 42,
   "train_batch_size": 1,
   "gradient_accumulation_steps": 1,
-  "dataloader_num_workers": 4,
-  "max_train_steps": 10000,
-  "checkpointing_steps": 1000,
+  "dataloader_num_workers": 1,
+  "max_train_steps": 2,
+  "checkpointing_steps": 0,
   "learning_rate": 0.00002,
   "adam_weight_decay": 0.03,
   "adam_epsilon": 1e-10,
@@ -33,10 +29,8 @@
   "vae_mini_batch": 1,
   "resume_from_checkpoint": null,
 
-  // Train all Wan transformer parameters by default.
   "trainable_modules": ["*"],
 
-  // Wan model config converted from gen-omnimatte-public/config/wan2.1/wan_civitai.yaml.
   "model": {
     "transformer_additional_kwargs": {
       "transformer_subpath": "./",
@@ -75,4 +69,3 @@
     }
   }
 }
-

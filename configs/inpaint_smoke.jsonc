@@ -1,23 +1,25 @@
 {
-  // Debug config. Point train_metadata at a tiny JSON before running.
+  "task": "inpaint",
   "pretrained_model_path": "/home/hulc/video_gen/Wan2.1-Fun-1.3B-InP",
-  "train_metadata": "../examples/openvid_metadata.example.json",
+
+  "train_metadata": "/home/hulc/video_gen/light-videox-trainer/examples/openvid_part1_512.valid.json",
   "train_data_root": "",
-  "output_dir": "outputs/debug-wan-t2v",
-  "tracker_project_name": "light-videox-trainer-debug",
+
+  "output_dir": "outputs/wan-openvid-smoke-inpaint-1.3b",
+  "tracker_project_name": "light-videox-trainer-inpaint-smoke",
 
   "video_sample_size": [256, 256],
   "video_sample_n_frames": 17,
-  "video_sample_stride": 2,
+  "video_sample_stride": 4,
   "random_crop": true,
-  "text_drop_ratio": 0.0,
+  "text_drop_ratio": 0.1,
 
   "seed": 42,
   "train_batch_size": 1,
   "gradient_accumulation_steps": 1,
-  "dataloader_num_workers": 0,
-  "max_train_steps": 10,
-  "checkpointing_steps": 5,
+  "dataloader_num_workers": 1,
+  "max_train_steps": 2,
+  "checkpointing_steps": 0,
   "learning_rate": 0.00002,
   "adam_weight_decay": 0.03,
   "adam_epsilon": 1e-10,
@@ -26,6 +28,7 @@
   "gradient_checkpointing": true,
   "vae_mini_batch": 1,
   "resume_from_checkpoint": null,
+
   "trainable_modules": ["*"],
 
   "model": {
@@ -54,6 +57,9 @@
       "num_buckets": 32,
       "shared_pos": false,
       "dropout": 0.0
+    },
+    "image_encoder_kwargs": {
+      "image_encoder_subpath": "models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth"
     },
     "scheduler_kwargs": {
       "num_train_timesteps": 1000,

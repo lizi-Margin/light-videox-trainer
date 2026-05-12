@@ -2,14 +2,14 @@
 
 A lightweight training harness for Wan/VideoX-Fun style video diffusion fine-tuning.
 
-The supported tasks are text-to-video smoke/full training and random-mask inpainting training
-with `Wan2.1-Fun-1.3B-InP`.
+The supported tasks are text-to-video and random-mask inpainting training with
+`Wan2.1-Fun-1.3B-InP`.
 
 ## Layout
 
-- `train_wan_t2v.py`: root training entrypoint.
-- `sanity_check.py`: validates config, metadata, batch decode, and optional model loading.
-- `configs/*.jsonc`: commented JSON configuration files.
+- `main.py`: unified CLI for training and sanity checks.
+- `configs/t2v_smoke.jsonc`: T2V smoke-test config.
+- `configs/inpaint_smoke.jsonc`: inpainting smoke-test config.
 - `trainer/`: class-based Wan trainers, task condition builders, scheduler helpers, checkpointing.
 - `data/`: video dataset, collate logic, and `VideoDataModule`.
 - `models/`: Wan model loading bundle and forward utilities.
@@ -30,11 +30,14 @@ pip install -r requirements.txt -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web
 
 ```bash
 micromamba activate video_gen
-python train_wan_t2v.py --config configs/wan_t2v_1.3b_debug.jsonc
+python main.py train --config configs/inpaint_smoke.jsonc
 ```
 
-Use `"task": "inpaint"` in the config for the inpainting trainer. Without a task field, the
-factory uses the T2V trainer.
+Run a lightweight data/config sanity check before training:
+
+```bash
+python main.py sanity --config configs/inpaint_smoke.jsonc
+```
 
 Before training, create and validate metadata:
 
@@ -49,7 +52,7 @@ python tools/validate_metadata.py \
   --write-valid /path/to/openvid_metadata.valid.json
 
 python tools/inspect_batch.py \
-  --config configs/wan_t2v_1.3b_debug.jsonc \
+  --config configs/inpaint_smoke.jsonc \
   --output outputs/inspect_batch.mp4
 ```
 
