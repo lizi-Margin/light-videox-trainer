@@ -24,6 +24,7 @@ class TrainingSampleConfig:
     guidance_scale: float
     seed: int
     sample_index: int
+    sample_count: int
     fps: int
     save_history: bool
     negative_prompt: str
@@ -36,6 +37,7 @@ class TrainingSampleConfig:
             guidance_scale=float(cfg.get("sample_guidance_scale", 6.0)),
             seed=int(cfg.get("sample_seed", 1234)),
             sample_index=int(cfg.get("sample_index", 0)),
+            sample_count=max(1, int(cfg.get("sample_count", 1))),
             fps=int(cfg.get("sample_fps", 8)),
             save_history=bool(cfg.get("sample_save_history", True)),
             negative_prompt=str(cfg.get("sample_negative_prompt", "")),
@@ -56,7 +58,7 @@ class TrainingVideoSampler:
         self.weight_dtype = weight_dtype
         self.sample_size = sample_size
         self.mask_generator = RandomInpaintMaskGenerator()
-        self.sample = self._load_fixed_sample(dataset)
+        self.samples = self._load_fixed_samples(dataset)
 
     @property
     def enabled(self) -> bool:
@@ -65,18 +67,24 @@ class TrainingVideoSampler:
     def should_sample(self, global_step: int) -> bool:
         return self.enabled and global_step > 0 and global_step % self.config.every_steps == 0
 
-    def _load_fixed_sample(self, dataset: VideoCaptionDataset) -> dict[str, Any]:
+    def _load_fixed_samples(self, dataset: VideoCaptionDataset) -> list[dict[str, Any]]:
+        samples = []
+        for sample_offset in range(self.config.sample_count):
+            samples.append(self._load_fixed_sample(dataset, sample_offset))
+        return samples
+
+    def _load_fixed_sample(self, dataset: VideoCaptionDataset, sample_offset: int) -> dict[str, Any]:
         state = random.getstate()
         try:
-            random.seed(self.config.seed)
-            item = dataset[self.config.sample_index % len(dataset)]
+            random.seed(self.config.seed + sample_offset)
+            item = dataset[(self.config.sample_index + sample_offset) % len(dataset)]
         finally:
             random.setstate(state)
         batch = VideoCollator(self.sample_size, random_crop=False)([item])
         return batch
 
     @torch.no_grad()
-    def sample_step(self, bundle, device: torch.device, global_step: int) -> Path:
+    def sample_step(self, bundle, device: torch.device, global_step: int) -> list[Path]:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         transformer = bundle.unwrap_transformer()
         was_training = transformer.training
@@ -91,15 +99,25 @@ class TrainingVideoSampler:
             scheduler=FlowMatchEulerDiscreteScheduler.from_config(bundle.scheduler.config),
         ).to(device)
 
-        pixel_values = self.sample["pixel_values"].to(device=device, dtype=self.weight_dtype)
+        latest_paths = []
+        for sample_offset, sample in enumerate(self.samples):
+            output = self._run_sample(pipeline, sample, device, sample_offset)
+            latest_paths.append(self._save_sample_video(output, global_step, sample_offset))
+
+        if was_training:
+            transformer.train()
+        return latest_paths
+
+    def _run_sample(self, pipeline, sample: dict[str, Any], device: torch.device, sample_offset: int) -> torch.Tensor:
+        pixel_values = sample["pixel_values"].to(device=device, dtype=self.weight_dtype)
         video = (pixel_values + 1.0) / 2.0
         video = video.permute(0, 2, 1, 3, 4).contiguous()
-        mask_video = self._build_mask_video(pixel_values, device)
+        mask_video = self._build_mask_video(pixel_values, device, self.config.seed + sample_offset)
         clip_image = self._first_frame_image(pixel_values[0, 0])
-        generator = torch.Generator(device=device).manual_seed(self.config.seed)
+        generator = torch.Generator(device=device).manual_seed(self.config.seed + sample_offset)
 
-        output = pipeline(
-            self.sample["text"][0],
+        return pipeline(
+            sample["text"][0],
             negative_prompt=self.config.negative_prompt,
             height=self.sample_size[0],
             width=self.sample_size[1],
@@ -115,25 +133,24 @@ class TrainingVideoSampler:
             zero_out_mask_region=True,
         ).videos
 
-        latest_path = self.output_dir / "latest.mp4"
+    def _save_sample_video(self, output: torch.Tensor, global_step: int, sample_offset: int) -> Path:
+        sample_name = f"sample_{sample_offset:02d}"
+        latest_path = self.output_dir / f"latest_{sample_name}.mp4"
         if self.config.save_history:
-            step_path = self.output_dir / f"step_{global_step:06d}.mp4"
+            step_path = self.output_dir / f"step_{global_step:06d}_{sample_name}.mp4"
             save_video_preview(self._normalize_pipeline_video(output), step_path, fps=self.config.fps)
             shutil.copyfile(step_path, latest_path)
         else:
             save_video_preview(self._normalize_pipeline_video(output), latest_path, fps=self.config.fps)
-
-        if was_training:
-            transformer.train()
         return latest_path
 
-    def _build_mask_video(self, pixel_values: torch.Tensor, device: torch.device) -> torch.Tensor:
+    def _build_mask_video(self, pixel_values: torch.Tensor, device: torch.device, seed: int) -> torch.Tensor:
         cpu_state = torch.random.get_rng_state()
         cuda_state = torch.cuda.get_rng_state(device) if device.type == "cuda" else None
         try:
-            torch.manual_seed(self.config.seed)
+            torch.manual_seed(seed)
             if device.type == "cuda":
-                torch.cuda.manual_seed(self.config.seed)
+                torch.cuda.manual_seed(seed)
             mask = self.mask_generator(pixel_values)
         finally:
             torch.random.set_rng_state(cpu_state)

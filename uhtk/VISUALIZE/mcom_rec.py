@@ -1,4 +1,4 @@
-import os, fnmatch, matplotlib, time, copy, json
+import inspect, os, fnmatch, matplotlib, time, copy, json
 import numpy as np
 from functools import lru_cache
 # 设置matplotlib正常显示中文和负号
@@ -6,6 +6,11 @@ from functools import lru_cache
 # matplotlib.rcParams['axes.unicode_minus']=False     # 正常显示负号
 ClassicPlotFigIndex = 1
 AdvancePlotFigIndex = 2
+_PERCENTILE_MIDPOINT_KW = (
+    {'method': 'midpoint'}
+    if 'method' in inspect.signature(np.percentile).parameters
+    else {'interpolation': 'midpoint'}
+)
 class rec_family(object):
     def __init__(self, colorC=None, draw_mode='Native', image_path=None, figsize=None, smooth_level=None, rec_exclude=[], **kwargs):
         # the list of vars' name (with order), string
@@ -419,8 +424,8 @@ class rec_family(object):
             _ydata_max_ = _ydata_.max() #max(self.line_list[index])
 
             if self.enable_percentile_clamp and len(_ydata_)>220 and self.vis_95percent:
-                _ydata_min_ = np.percentile(_ydata_, 3, interpolation='midpoint') # 3%
-                _ydata_max_ = np.percentile(_ydata_, 97, interpolation='midpoint') # 97%
+                _ydata_min_ = np.percentile(_ydata_, 3, **_PERCENTILE_MIDPOINT_KW) # 3%
+                _ydata_max_ = np.percentile(_ydata_, 97, **_PERCENTILE_MIDPOINT_KW) # 97%
 
             self.change_target_figure_lim(target_subplot, _xdata_min_, _xdata_max_, _ydata_min_, _ydata_max_)
 

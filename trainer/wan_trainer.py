@@ -64,6 +64,7 @@ class WanTrainer:
 
         resume_path = resolve_resume_checkpoint(self.output_dir, self.cfg.get("resume_from_checkpoint"))
         global_step = self._resume_global_step(resume_path)
+        self._sample_video_before_training(global_step)
         progress = tqdm(
             range(global_step, int(self.cfg["max_train_steps"])),
             disable=not self.accelerator.is_local_main_process,
@@ -269,8 +270,17 @@ class WanTrainer:
         if not self.video_sampler.should_sample(global_step):
             return
         assert self.bundle is not None
-        latest_path = self.video_sampler.sample_step(self.bundle, self.accelerator.device, global_step)
-        self.accelerator.print(f"Saved training sample: {latest_path}")
+        latest_paths = self.video_sampler.sample_step(self.bundle, self.accelerator.device, global_step)
+        self.accelerator.print(f"Saved training samples: {', '.join(str(path) for path in latest_paths)}")
+
+    def _sample_video_before_training(self, global_step: int) -> None:
+        if not self.accelerator.is_main_process or self.video_sampler is None:
+            return
+        if not self.video_sampler.enabled:
+            return
+        assert self.bundle is not None
+        latest_paths = self.video_sampler.sample_step(self.bundle, self.accelerator.device, global_step)
+        self.accelerator.print(f"Saved pre-training samples: {', '.join(str(path) for path in latest_paths)}")
 
     def _sleep_between_steps(self, seconds: float) -> None:
         if seconds <= 0.0:
