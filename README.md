@@ -38,7 +38,8 @@ default log directory is `<output_dir>/visualizer`, and the live/static outputs 
 written under that directory, including `rec.jpg`, `rec.json`, and `rec.csv`.
 Logged scalar metrics include `train_loss`, `learning_rate`, `grad_norm`,
 `step_time_sec`, `samples_per_sec`, `samples_seen`, `timestep_mean`,
-`sigma_mean`, and CUDA memory metrics when training on GPU.
+`sigma_mean`, `mask_fraction`, validation metrics such as
+`validation_masked_psnr`, and CUDA memory metrics when training on GPU.
 
 Relevant config keys:
 
@@ -48,6 +49,25 @@ Relevant config keys:
 "visualizer_dpi": 120,
 "visualizer_font_size": 9,
 "visualizer_figsize": null
+```
+
+For inpainting runs, low-cost training samples and fixed validation are separate.
+Training samples are for quick visual health checks. Validation uses fixed cases,
+fixed masks, and fixed inference seeds so checkpoint outputs can be compared.
+Validation outputs are written under `<output_dir>/validation`, including
+`source.mp4`, `mask.mp4`, `masked_input.mp4`, `generated.mp4`, and `summary.json`
+for each validation step.
+
+Relevant validation and inpainting keys:
+
+```json
+"validation_every_steps": 500,
+"validation_metadata": "",
+"validation_count": 8,
+"validation_seed": 2026,
+"masked_loss_weight": 4.0,
+"unmasked_loss_weight": 1.0,
+"mask_modes": ["rectangle", "moving_rectangle", "brush"]
 ```
 
 Run a lightweight data/config sanity check before training:

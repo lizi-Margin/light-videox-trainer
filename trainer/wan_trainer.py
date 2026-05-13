@@ -17,6 +17,7 @@ from trainer.metrics_logger import UHTKMetricsLogger
 from trainer.sampling import TrainingVideoSampler
 from trainer.schedulers import flow_matching_loss, get_sigmas, sample_flow_timesteps
 from trainer.tasks import WanInpaintTask, WanT2VTask, WanTrainingTask, build_training_task
+from trainer.validation import TrainingVideoValidator
 from utils.device import dtype_from_mixed_precision, seed_everything
 from utils.paths import ensure_dir, expand_path
 from utils.video_io import save_video_preview
@@ -56,6 +57,7 @@ class WanTrainer:
         self.trainable_params: list[torch.nn.Parameter] = []
         self.metrics_logger: UHTKMetricsLogger | None = None
         self.video_sampler: TrainingVideoSampler | None = None
+        self.video_validator: TrainingVideoValidator | None = None
 
     def train(self) -> None:
         self._setup()
@@ -65,6 +67,7 @@ class WanTrainer:
         resume_path = resolve_resume_checkpoint(self.output_dir, self.cfg.get("resume_from_checkpoint"))
         global_step = self._resume_global_step(resume_path)
         self._sample_video_before_training(global_step)
+        self._validate_video_before_training(global_step)
         progress = tqdm(
             range(global_step, int(self.cfg["max_train_steps"])),
             disable=not self.accelerator.is_local_main_process,
@@ -94,6 +97,7 @@ class WanTrainer:
                     progress.set_postfix(loss=f"{loss.detach().float().item():.4f}")
                     self._save_checkpoint_if_due(global_step, checkpointing_steps)
                     self._sample_video_if_due(global_step)
+                    self._validate_video_if_due(global_step)
                     self._sleep_between_steps(step_sleep_seconds)
                     step_start_time = time.perf_counter()
 
@@ -127,6 +131,15 @@ class WanTrainer:
                 output_dir=self.output_dir,
                 dataset=self.data_module.train_dataset,
                 sample_size=self.data_module.config.sample_size,
+                weight_dtype=self.weight_dtype,
+            )
+            self.video_validator = TrainingVideoValidator(
+                self.cfg,
+                output_dir=self.output_dir,
+                train_dataset=self.data_module.train_dataset,
+                sample_size=self.data_module.config.sample_size,
+                sample_n_frames=self.data_module.config.sample_n_frames,
+                sample_stride=self.data_module.config.sample_stride,
                 weight_dtype=self.weight_dtype,
             )
 
@@ -209,7 +222,13 @@ class WanTrainer:
                     y=condition.y,
                     clip_fea=condition.clip_fea,
                 )
-                loss = flow_matching_loss(noise_pred, target)
+                loss = flow_matching_loss(
+                    noise_pred,
+                    target,
+                    loss_mask=condition.loss_mask,
+                    masked_weight=float(self.cfg.get("masked_loss_weight", 1.0)),
+                    unmasked_weight=float(self.cfg.get("unmasked_loss_weight", 1.0)),
+                )
 
             self.accelerator.backward(loss)
             grad_norm = None
@@ -224,6 +243,8 @@ class WanTrainer:
                 "timestep_mean": timesteps.detach().float().mean().item(),
                 "sigma_mean": sigmas.detach().float().mean().item(),
             }
+            if condition.loss_mask is not None:
+                metrics["mask_fraction"] = condition.loss_mask.detach().float().mean().item()
             if grad_norm is not None:
                 metrics["grad_norm"] = grad_norm.detach().float().item() if hasattr(grad_norm, "detach") else float(grad_norm)
             return loss, metrics
@@ -281,6 +302,28 @@ class WanTrainer:
         assert self.bundle is not None
         latest_paths = self.video_sampler.sample_step(self.bundle, self.accelerator.device, global_step)
         self.accelerator.print(f"Saved pre-training samples: {', '.join(str(path) for path in latest_paths)}")
+
+    def _validate_video_if_due(self, global_step: int) -> None:
+        if not self.accelerator.is_main_process or self.video_validator is None:
+            return
+        if not self.video_validator.should_validate(global_step):
+            return
+        assert self.bundle is not None
+        metrics = self.video_validator.validate_step(self.bundle, self.accelerator.device, global_step)
+        if self.metrics_logger is not None:
+            self.metrics_logger.log(metrics, step=global_step)
+        self.accelerator.print(f"Saved validation outputs: {os.path.join(self.output_dir, 'validation', 'latest')}")
+
+    def _validate_video_before_training(self, global_step: int) -> None:
+        if not self.accelerator.is_main_process or self.video_validator is None:
+            return
+        if not self.video_validator.enabled:
+            return
+        assert self.bundle is not None
+        metrics = self.video_validator.validate_step(self.bundle, self.accelerator.device, global_step)
+        if self.metrics_logger is not None:
+            self.metrics_logger.log(metrics, step=global_step)
+        self.accelerator.print(f"Saved pre-training validation outputs: {os.path.join(self.output_dir, 'validation', 'latest')}")
 
     def _sleep_between_steps(self, seconds: float) -> None:
         if seconds <= 0.0:
@@ -350,7 +393,7 @@ class WanInpaintTrainer(WanTrainer):
     def __init__(self, cfg: dict[str, Any], data_module: VideoDataModule | None = None) -> None:
         super().__init__(
             cfg,
-            task=WanInpaintTask(vae_mini_batch=int(cfg.get("vae_mini_batch", 1))),
+            task=build_training_task(cfg, vae_mini_batch=int(cfg.get("vae_mini_batch", 1))),
             data_module=data_module,
         )
 

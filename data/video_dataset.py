@@ -35,6 +35,14 @@ class VideoCaptionDataset(Dataset):
         sample_stride: int = 2,
         sample_size: tuple[int, int] = (256, 256),
         text_drop_ratio: float = 0.0,
+        max_items: int = 0,
+        require_text: bool = False,
+        min_frames: int = 0,
+        min_width: int = 0,
+        min_height: int = 0,
+        min_duration: float = 0.0,
+        max_duration: float = 0.0,
+        decord_num_threads: int = 2,
     ) -> None:
         self.metadata_path = metadata_path
         self.data_root = data_root
@@ -42,10 +50,26 @@ class VideoCaptionDataset(Dataset):
         self.sample_stride = sample_stride
         self.sample_size = sample_size
         self.text_drop_ratio = text_drop_ratio
+        self.decord_num_threads = decord_num_threads
 
         with open(metadata_path, "r", encoding="utf-8") as f:
             raw_items: list[dict[str, Any]] = json.load(f)
-        self.items = [item for item in raw_items if item.get("type", "video") == "video"]
+        self.items = [
+            item
+            for item in raw_items
+            if item.get("type", "video") == "video"
+            and self._passes_metadata_filters(
+                item,
+                require_text=require_text,
+                min_frames=min_frames,
+                min_width=min_width,
+                min_height=min_height,
+                min_duration=min_duration,
+                max_duration=max_duration,
+            )
+        ]
+        if max_items > 0:
+            self.items = self.items[:max_items]
         if not self.items:
             raise ValueError(f"No video items found in metadata: {metadata_path}")
 
@@ -59,7 +83,7 @@ class VideoCaptionDataset(Dataset):
         if random.random() < self.text_drop_ratio:
             text = ""
 
-        vr = VideoReader(video_path, num_threads=2)
+        vr = VideoReader(video_path, num_threads=self.decord_num_threads)
         if len(vr) < 1:
             raise ValueError(f"No frames in video: {video_path}")
 
@@ -80,3 +104,41 @@ class VideoCaptionDataset(Dataset):
             "data_type": "video",
         }
 
+    def _passes_metadata_filters(
+        self,
+        item: dict[str, Any],
+        require_text: bool,
+        min_frames: int,
+        min_width: int,
+        min_height: int,
+        min_duration: float,
+        max_duration: float,
+    ) -> bool:
+        if require_text and not str(item.get("text", "")).strip():
+            return False
+        frame_count = self._number(item, "num_frames", "frames", "frame_count")
+        if min_frames > 0 and frame_count > 0 and frame_count < min_frames:
+            return False
+        width = self._number(item, "width", "w")
+        height = self._number(item, "height", "h")
+        if min_width > 0 and width > 0 and width < min_width:
+            return False
+        if min_height > 0 and height > 0 and height < min_height:
+            return False
+        duration = self._number(item, "duration", "duration_sec", "seconds")
+        if min_duration > 0 and duration > 0 and duration < min_duration:
+            return False
+        if max_duration > 0 and duration > 0 and duration > max_duration:
+            return False
+        return True
+
+    def _number(self, item: dict[str, Any], *keys: str) -> float:
+        for key in keys:
+            value = item.get(key)
+            if value is None:
+                continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return 0.0

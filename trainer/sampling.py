@@ -164,6 +164,8 @@ class TrainingVideoSampler:
         return Image.fromarray(frame)
 
     def _normalize_pipeline_video(self, video: torch.Tensor) -> torch.Tensor:
+        if not isinstance(video, torch.Tensor):
+            video = torch.as_tensor(video)
         if video.ndim != 5:
             raise ValueError(f"Expected generated video with 5 dims, got shape={tuple(video.shape)}")
         video = video[0]

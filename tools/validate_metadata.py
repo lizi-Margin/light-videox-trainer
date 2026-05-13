@@ -20,6 +20,9 @@ def main() -> None:
     parser.add_argument("--metadata", required=True)
     parser.add_argument("--data-root", default=None)
     parser.add_argument("--min-frames", type=int, default=1)
+    parser.add_argument("--min-width", type=int, default=0)
+    parser.add_argument("--min-height", type=int, default=0)
+    parser.add_argument("--require-text", action="store_true")
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--write-valid", default=None)
     args = parser.parse_args()
@@ -33,10 +36,17 @@ def main() -> None:
     for item in tqdm(items):
         path = resolve(item["file_path"], args.data_root)
         try:
+            if args.require_text and not str(item.get("text", "")).strip():
+                raise ValueError("empty text")
             vr = VideoReader(str(path), num_threads=1)
             if len(vr) < args.min_frames:
                 raise ValueError(f"only {len(vr)} frames")
-            _ = vr[0]
+            frame = vr[0].asnumpy()
+            height, width = frame.shape[:2]
+            if args.min_width > 0 and width < args.min_width:
+                raise ValueError(f"width {width} < {args.min_width}")
+            if args.min_height > 0 and height < args.min_height:
+                raise ValueError(f"height {height} < {args.min_height}")
             valid.append(item)
         except Exception as exc:
             bad += 1
@@ -53,4 +63,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
